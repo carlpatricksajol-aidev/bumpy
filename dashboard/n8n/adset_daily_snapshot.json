@@ -1,0 +1,89 @@
+{
+  "name": "Bumpy — Ad Set Daily Snapshot",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": { "interval": [ { "field": "hours", "hoursInterval": 24, "triggerAtHour": 5, "triggerAtMinute": 10 } ] }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.3,
+      "position": [0, 0],
+      "id": "b2000000-0000-4000-8000-000000000001",
+      "name": "Daily 05:10"
+    },
+    {
+      "parameters": {
+        "url": "=https://graph.facebook.com/v22.0/{{ $env.META_AD_ACCOUNT }}/insights?level=adset&fields=adset_id,adset_name,campaign_id,spend,impressions,reach,frequency,clicks,inline_link_clicks,unique_inline_link_clicks,actions,action_values,purchase_roas&filtering=[{\"field\":\"adset.effective_status\",\"operator\":\"IN\",\"value\":[\"ACTIVE\"]}]&date_preset=yesterday&limit=1000&access_token={{ $env.META_ACCESS_TOKEN }}",
+        "options": {
+          "pagination": {
+            "pagination": {
+              "parameters": { "parameters": [ { "name": "after", "value": "={{ $response.body.paging?.cursors?.after }}" } ] },
+              "paginationCompleteWhen": "other",
+              "completeExpression": "={{ !$response.body.paging?.cursors?.after }}",
+              "requestInterval": 500
+            }
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [220, 0],
+      "id": "b2000000-0000-4000-8000-000000000002",
+      "name": "Get Ad Set Insights (yesterday)",
+      "retryOnFail": true,
+      "waitBetweenTries": 5000
+    },
+    {
+      "parameters": { "fieldToSplitOut": "data", "options": {} },
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
+      "position": [440, 0],
+      "id": "b2000000-0000-4000-8000-000000000003",
+      "name": "Split Out"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Parse one ad set insight row -> adset_daily row for yesterday\nfunction actVal(arr, types){ if(!Array.isArray(arr)) return 0; for(const t of types){ const a=arr.find(x=>x.action_type===t); if(a&&a.value!=null) return parseFloat(a.value); } return 0; }\nconst PURCHASE=['omni_purchase','purchase','offsite_conversion.fb_pixel_purchase','app_custom_event.fb_mobile_purchase'];\nconst d=new Date(Date.now()-86400000);\nconst yest=`${d.getUTCFullYear()}-${String(d.getUTCMonth()+1).padStart(2,'0')}-${String(d.getUTCDate()).padStart(2,'0')}`;\nreturn $input.all().map(({json:a})=>{\n  const spend=parseFloat(a.spend||0);\n  const conversions=actVal(a.actions,PURCHASE);\n  const revenue=actVal(a.action_values,PURCHASE);\n  let roas=0;\n  if(Array.isArray(a.purchase_roas)&&a.purchase_roas.length) roas=parseFloat(a.purchase_roas[0].value||0);\n  else roas= spend>0 ? revenue/spend : 0;\n  return { json: {\n    adset_id:a.adset_id,\n    campaign_id:a.campaign_id,\n    date:yest,\n    spend:Math.round(spend*100)/100,\n    revenue:Math.round(revenue*100)/100,\n    impressions:parseInt(a.impressions||0),\n    reach:parseInt(a.reach||0),\n    clicks:parseInt(a.clicks||0),\n    link_clicks:parseInt(a.inline_link_clicks||0),\n    unique_link_clicks:parseInt(a.unique_inline_link_clicks||0),\n    conversions:Math.round(conversions),\n    frequency:Math.round(parseFloat(a.frequency||0)*100)/100,\n    purchase_roas:Math.round(roas*10000)/10000\n  }};\n});"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [660, 0],
+      "id": "b2000000-0000-4000-8000-000000000004",
+      "name": "Parse -> adset_daily"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.SUPABASE_URL }}/rest/v1/adset_daily?on_conflict=adset_id,date",
+        "sendHeaders": true,
+        "headerParameters": { "parameters": [
+          { "name": "apikey", "value": "={{ $env.SUPABASE_SERVICE_KEY }}" },
+          { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_SERVICE_KEY }}" },
+          { "name": "Content-Type", "value": "application/json" },
+          { "name": "Prefer", "value": "resolution=merge-duplicates,return=minimal" }
+        ] },
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify([$json]) }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [880, 0],
+      "id": "b2000000-0000-4000-8000-000000000005",
+      "name": "Upsert adset_daily",
+      "retryOnFail": true,
+      "waitBetweenTries": 3000
+    }
+  ],
+  "connections": {
+    "Daily 05:10": { "main": [ [ { "node": "Get Ad Set Insights (yesterday)", "type": "main", "index": 0 } ] ] },
+    "Get Ad Set Insights (yesterday)": { "main": [ [ { "node": "Split Out", "type": "main", "index": 0 } ] ] },
+    "Split Out": { "main": [ [ { "node": "Parse -> adset_daily", "type": "main", "index": 0 } ] ] },
+    "Parse -> adset_daily": { "main": [ [ { "node": "Upsert adset_daily", "type": "main", "index": 0 } ] ] }
+  },
+  "active": false,
+  "settings": { "executionOrder": "v1" },
+  "tags": []
+}
