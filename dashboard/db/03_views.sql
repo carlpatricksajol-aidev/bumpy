@@ -2,25 +2,36 @@
 -- Bumpy Analytics — Windowed metric views
 -- ----------------------------------------------------------------------------
 -- One row per entity PER WINDOW (long format). The dashboard reads e.g.
---   select * from v_creative_metrics where window_days = 7;
+--   select * from v_campaign_metrics where window_days = 7;
 -- Windows: 1 (yesterday) / 7 / 14 / 28 / 30 / 60 days, each ENDING yesterday
 -- (the last complete day). prev_* columns are the immediately preceding window
 -- of equal length, used for change% and fatigue detection.
 --
 -- All derived ratios (roas, cpm, ctr, cpc, cpp, cvr, ipm, pp10k, avg_purchase)
--- are computed here ONCE, server-side, from the daily sums — so they are always
--- internally consistent.
+-- are computed here ONCE, server-side, from the daily sums — always consistent.
+--
+-- Schema notes (from the live DB):
+--   • adsets has no `persona` column            → not selected here
+--   • creative_performance has no adset_id /     → adset_id & campaign_id are
+--     campaign_id (only adset_name)                derived from creative_daily
 -- Apply order: run AFTER 01 and 02. Safe to re-run (CREATE OR REPLACE).
 -- ============================================================================
 
 -- ---------------------------------------------------------------------------
 -- CREATIVE
+-- creative_performance lacks adset_id/campaign_id, so the parent linkage comes
+-- from the latest creative_daily row per ad.
 -- ---------------------------------------------------------------------------
 create or replace view v_creative_metrics as
 with windows(window_days) as (values (1),(7),(14),(28),(30),(60)),
+parent as (
+  select distinct on (ad_id) ad_id, adset_id, campaign_id
+  from creative_daily
+  order by ad_id, date desc
+),
 agg as (
   select
-    cp.ad_id, cp.ad_name, cp.adset_id, cp.adset_name, cp.campaign_id,
+    cp.ad_id, cp.ad_name, p.adset_id, cp.adset_name, p.campaign_id,
     cp.persona, cp.concept_code, cp.media_type, cp.batch, cp.language,
     cp.status, cp.primary_country, cp.primary_device, cp.budget, cp.created_at,
     cp.country_breakdown, cp.device_breakdown,
@@ -38,12 +49,13 @@ agg as (
     coalesce(sum(d.revenue)     filter (where d.date <= current_date - 1 - w.window_days),0) as prev_revenue,
     coalesce(sum(d.conversions) filter (where d.date <= current_date - 1 - w.window_days),0) as prev_conversions
   from creative_performance cp
+  left join parent p on p.ad_id = cp.ad_id
   cross join windows w
   left join creative_daily d
     on  d.ad_id = cp.ad_id
     and d.date <= current_date - 1
-    and d.date >  current_date - 1 - (2 * w.window_days)   -- only scan cur+prev range
-  group by cp.ad_id, cp.ad_name, cp.adset_id, cp.adset_name, cp.campaign_id,
+    and d.date >  current_date - 1 - (2 * w.window_days)
+  group by cp.ad_id, cp.ad_name, p.adset_id, cp.adset_name, p.campaign_id,
            cp.persona, cp.concept_code, cp.media_type, cp.batch, cp.language,
            cp.status, cp.primary_country, cp.primary_device, cp.budget, cp.created_at,
            cp.country_breakdown, cp.device_breakdown, w.window_days
@@ -73,13 +85,13 @@ select
 from agg;
 
 -- ---------------------------------------------------------------------------
--- AD SET
+-- AD SET  (adsets dimension has campaign_id; no persona column)
 -- ---------------------------------------------------------------------------
 create or replace view v_adset_metrics as
 with windows(window_days) as (values (1),(7),(14),(28),(30),(60)),
 agg as (
   select
-    a.adset_id, a.adset_name, a.campaign_id, a.persona,
+    a.adset_id, a.adset_name, a.campaign_id,
     a.status, a.primary_country, a.primary_device, a.budget, a.created_at,
     a.country_breakdown, a.device_breakdown,
     w.window_days,
@@ -99,7 +111,7 @@ agg as (
     on  d.adset_id = a.adset_id
     and d.date <= current_date - 1
     and d.date >  current_date - 1 - (2 * w.window_days)
-  group by a.adset_id, a.adset_name, a.campaign_id, a.persona,
+  group by a.adset_id, a.adset_name, a.campaign_id,
            a.status, a.primary_country, a.primary_device, a.budget, a.created_at,
            a.country_breakdown, a.device_breakdown, w.window_days
 )
@@ -181,8 +193,9 @@ from agg;
 
 -- ---------------------------------------------------------------------------
 -- YESTERDAY WINNERS  (top performers for the last complete day)
--- Ranked by ROAS among entities that spent at least the guard amount yesterday,
--- so a $2-spend fluke can't top the board. One unioned view, filter by level.
+-- Ranked by ROAS among entities that spent at least the guard amount yesterday.
+-- creative_performance has no campaign_id, so the creative parent_id comes from
+-- creative_daily.
 -- ---------------------------------------------------------------------------
 create or replace view v_yesterday_winners as
 with min_spend as (select 20::numeric as guard)
@@ -206,7 +219,7 @@ select * from (
   cross join min_spend m
   where d.date = current_date - 1 and d.spend >= m.guard
   union all
-  select 'creative', d.ad_id, cp.ad_name, cp.campaign_id,
+  select 'creative', d.ad_id, cp.ad_name, d.campaign_id,
          d.spend, d.revenue, d.conversions,
          round((d.revenue / nullif(d.spend,0))::numeric, 4),
          row_number() over (order by (d.revenue / nullif(d.spend,0)) desc nulls last)
