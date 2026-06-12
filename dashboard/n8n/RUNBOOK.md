@@ -94,10 +94,12 @@ import **`backfill_60d.json`** and click **Execute workflow** once:
 - It calls Meta with `time_range={since:-60d, until:yesterday}&time_increment=1`,
   which returns **one row per entity per day** — each daily row's `date` comes from
   Meta's `date_start`. Campaign/ad-set levels run as one 60-day call (small). The
-  **ad level is split into 7-day chunks** (one Meta request per chunk) because a
-  full 60-day ad-level pull is too large and Meta returns a transient
-  `code 2 / "Service temporarily unavailable"`. If you still hit that, lower
-  `CHUNK` from `7` to `3` in the "Ad date chunks" node and re-run.
+  **ad level is pulled one day per call** (`CHUNK = 1` in the "Ad date chunks"
+  node) — a multi-day ad-level pull across thousands of ads makes Meta reply
+  `code 2 "Service temporarily unavailable"` or `code 1 "Please reduce the amount
+  of data"`. One day = the same volume as the daily snapshot, which is safe. It's
+  ~60 paced calls, so the ad backfill takes a while — let it run. (If your account
+  has few ads you can raise `CHUNK` to make it faster.)
 - It upserts into `campaign_daily` / `adset_daily` / `creative_daily`
   (`on_conflict=<id>,date`), so re-running is safe and never duplicates.
 - It only needs the same env vars as the daily workflows. **Delete or deactivate

@@ -81,14 +81,14 @@
 
     {
       "parameters": {
-        "jsCode": "// Ad-level 60d is too big for one Meta call, so split into 7-day windows.\n// The HTTP node runs once per item below, keeping each request small.\n// Lower CHUNK to 3 if Meta still returns a transient 'Service temporarily unavailable'.\nconst CHUNK = 7;\nconst DAY = 86400000;\nconst f = d => `${d.getUTCFullYear()}-${String(d.getUTCMonth()+1).padStart(2,'0')}-${String(d.getUTCDate()).padStart(2,'0')}`;\nconst end = new Date(Date.now() - DAY);       // yesterday\nconst start = new Date(Date.now() - 60*DAY);   // 60 days ago\nconst out = [];\nlet cur = new Date(start);\nwhile (cur <= end) {\n  const s = new Date(cur);\n  const e = new Date(Math.min(cur.getTime() + (CHUNK-1)*DAY, end.getTime()));\n  out.push({ json: { since: f(s), until: f(e) } });\n  cur = new Date(e.getTime() + DAY);\n}\nreturn out;"
+        "jsCode": "// Ad-level history must be pulled in small windows or Meta replies\n// 'Please reduce the amount of data'. 1 day per call = the same volume as the\n// daily snapshot (all ads, one day), which Meta handles fine. The HTTP node runs\n// once per item below. Only raise CHUNK (e.g. 3) if your account has few ads.\nconst CHUNK = 1;\nconst DAY = 86400000;\nconst f = d => `${d.getUTCFullYear()}-${String(d.getUTCMonth()+1).padStart(2,'0')}-${String(d.getUTCDate()).padStart(2,'0')}`;\nconst end = new Date(Date.now() - DAY);       // yesterday\nconst start = new Date(Date.now() - 60*DAY);   // 60 days ago\nconst out = [];\nlet cur = new Date(start);\nwhile (cur <= end) {\n  const s = new Date(cur);\n  const e = new Date(Math.min(cur.getTime() + (CHUNK-1)*DAY, end.getTime()));\n  out.push({ json: { since: f(s), until: f(e) } });\n  cur = new Date(e.getTime() + DAY);\n}\nreturn out;"
       },
       "type": "n8n-nodes-base.code", "typeVersion": 2, "position": [40, 440],
-      "id": "d4000000-0000-4000-8000-00000000000d", "name": "Ad date chunks (7d)"
+      "id": "d4000000-0000-4000-8000-00000000000d", "name": "Ad date chunks"
     },
     {
       "parameters": {
-        "url": "=https://graph.facebook.com/v22.0/{{ $env.META_AD_ACCOUNT }}/insights?level=ad&fields=ad_id,ad_name,adset_id,campaign_id,spend,impressions,reach,frequency,clicks,inline_link_clicks,unique_inline_link_clicks,actions,action_values,purchase_roas,video_play_actions,video_thruplay_watched_actions&time_range={\"since\":\"{{ $json.since }}\",\"until\":\"{{ $json.until }}\"}&time_increment=1&filtering=[{\"field\":\"ad.effective_status\",\"operator\":\"IN\",\"value\":[\"ACTIVE\"]}]&limit=300&access_token={{ $env.META_ACCESS_TOKEN }}",
+        "url": "=https://graph.facebook.com/v22.0/{{ $env.META_AD_ACCOUNT }}/insights?level=ad&fields=ad_id,ad_name,adset_id,campaign_id,spend,impressions,reach,frequency,clicks,inline_link_clicks,unique_inline_link_clicks,actions,action_values,purchase_roas,video_play_actions,video_thruplay_watched_actions&time_range={\"since\":\"{{ $json.since }}\",\"until\":\"{{ $json.until }}\"}&time_increment=1&filtering=[{\"field\":\"ad.effective_status\",\"operator\":\"IN\",\"value\":[\"ACTIVE\"]}]&limit=500&access_token={{ $env.META_ACCESS_TOKEN }}",
         "options": { "batching": { "batch": { "batchSize": 1, "batchInterval": 3000 } }, "pagination": { "pagination": { "parameters": { "parameters": [ { "name": "after", "value": "={{ $response.body.paging?.cursors?.after }}" } ] }, "paginationCompleteWhen": "other", "completeExpression": "={{ !$response.body.paging?.cursors?.after }}", "requestInterval": 1500 } } }
       },
       "type": "n8n-nodes-base.httpRequest", "typeVersion": 4.3, "position": [260, 440],
@@ -122,7 +122,7 @@
     "Run once": { "main": [ [
       { "node": "Campaigns 60d (daily)", "type": "main", "index": 0 },
       { "node": "Ad Sets 60d (daily)", "type": "main", "index": 0 },
-      { "node": "Ad date chunks (7d)", "type": "main", "index": 0 }
+      { "node": "Ad date chunks", "type": "main", "index": 0 }
     ] ] },
     "Campaigns 60d (daily)": { "main": [ [ { "node": "Split Campaigns", "type": "main", "index": 0 } ] ] },
     "Split Campaigns": { "main": [ [ { "node": "Parse Campaigns", "type": "main", "index": 0 } ] ] },
@@ -130,7 +130,7 @@
     "Ad Sets 60d (daily)": { "main": [ [ { "node": "Split Ad Sets", "type": "main", "index": 0 } ] ] },
     "Split Ad Sets": { "main": [ [ { "node": "Parse Ad Sets", "type": "main", "index": 0 } ] ] },
     "Parse Ad Sets": { "main": [ [ { "node": "Upsert adset_daily", "type": "main", "index": 0 } ] ] },
-    "Ad date chunks (7d)": { "main": [ [ { "node": "Ads chunk (daily)", "type": "main", "index": 0 } ] ] },
+    "Ad date chunks": { "main": [ [ { "node": "Ads chunk (daily)", "type": "main", "index": 0 } ] ] },
     "Ads chunk (daily)": { "main": [ [ { "node": "Split Ads", "type": "main", "index": 0 } ] ] },
     "Split Ads": { "main": [ [ { "node": "Parse Ads", "type": "main", "index": 0 } ] ] },
     "Parse Ads": { "main": [ [ { "node": "Upsert creative_daily", "type": "main", "index": 0 } ] ] }
