@@ -81,22 +81,29 @@
 
     {
       "parameters": {
-        "url": "=https://graph.facebook.com/v22.0/{{ $env.META_AD_ACCOUNT }}/insights?level=ad&fields=ad_id,ad_name,adset_id,campaign_id,spend,impressions,reach,frequency,clicks,inline_link_clicks,unique_inline_link_clicks,actions,action_values,purchase_roas,video_play_actions,video_thruplay_watched_actions&time_range={\"since\":\"{{ $now.minus({ days: 60 }).toFormat('yyyy-MM-dd') }}\",\"until\":\"{{ $now.minus({ days: 1 }).toFormat('yyyy-MM-dd') }}\"}&time_increment=1&filtering=[{\"field\":\"ad.effective_status\",\"operator\":\"IN\",\"value\":[\"ACTIVE\"]}]&limit=500&access_token={{ $env.META_ACCESS_TOKEN }}",
-        "options": { "pagination": { "pagination": { "parameters": { "parameters": [ { "name": "after", "value": "={{ $response.body.paging?.cursors?.after }}" } ] }, "paginationCompleteWhen": "other", "completeExpression": "={{ !$response.body.paging?.cursors?.after }}", "requestInterval": 800 } } }
+        "jsCode": "// Ad-level 60d is too big for one Meta call, so split into 7-day windows.\n// The HTTP node runs once per item below, keeping each request small.\n// Lower CHUNK to 3 if Meta still returns a transient 'Service temporarily unavailable'.\nconst CHUNK = 7;\nconst DAY = 86400000;\nconst f = d => `${d.getUTCFullYear()}-${String(d.getUTCMonth()+1).padStart(2,'0')}-${String(d.getUTCDate()).padStart(2,'0')}`;\nconst end = new Date(Date.now() - DAY);       // yesterday\nconst start = new Date(Date.now() - 60*DAY);   // 60 days ago\nconst out = [];\nlet cur = new Date(start);\nwhile (cur <= end) {\n  const s = new Date(cur);\n  const e = new Date(Math.min(cur.getTime() + (CHUNK-1)*DAY, end.getTime()));\n  out.push({ json: { since: f(s), until: f(e) } });\n  cur = new Date(e.getTime() + DAY);\n}\nreturn out;"
       },
-      "type": "n8n-nodes-base.httpRequest", "typeVersion": 4.3, "position": [40, 440],
-      "id": "d4000000-0000-4000-8000-000000000009", "name": "Ads 60d (daily)", "retryOnFail": true, "waitBetweenTries": 5000
+      "type": "n8n-nodes-base.code", "typeVersion": 2, "position": [40, 440],
+      "id": "d4000000-0000-4000-8000-00000000000d", "name": "Ad date chunks (7d)"
+    },
+    {
+      "parameters": {
+        "url": "=https://graph.facebook.com/v22.0/{{ $env.META_AD_ACCOUNT }}/insights?level=ad&fields=ad_id,ad_name,adset_id,campaign_id,spend,impressions,reach,frequency,clicks,inline_link_clicks,unique_inline_link_clicks,actions,action_values,purchase_roas,video_play_actions,video_thruplay_watched_actions&time_range={\"since\":\"{{ $json.since }}\",\"until\":\"{{ $json.until }}\"}&time_increment=1&filtering=[{\"field\":\"ad.effective_status\",\"operator\":\"IN\",\"value\":[\"ACTIVE\"]}]&limit=300&access_token={{ $env.META_ACCESS_TOKEN }}",
+        "options": { "batching": { "batch": { "batchSize": 1, "batchInterval": 3000 } }, "pagination": { "pagination": { "parameters": { "parameters": [ { "name": "after", "value": "={{ $response.body.paging?.cursors?.after }}" } ] }, "paginationCompleteWhen": "other", "completeExpression": "={{ !$response.body.paging?.cursors?.after }}", "requestInterval": 1500 } } }
+      },
+      "type": "n8n-nodes-base.httpRequest", "typeVersion": 4.3, "position": [260, 440],
+      "id": "d4000000-0000-4000-8000-000000000009", "name": "Ads chunk (daily)", "retryOnFail": true, "maxTries": 5, "waitBetweenTries": 8000
     },
     {
       "parameters": { "fieldToSplitOut": "data", "options": {} },
-      "type": "n8n-nodes-base.splitOut", "typeVersion": 1, "position": [260, 440],
+      "type": "n8n-nodes-base.splitOut", "typeVersion": 1, "position": [480, 440],
       "id": "d4000000-0000-4000-8000-00000000000a", "name": "Split Ads"
     },
     {
       "parameters": {
         "jsCode": "function actVal(a,t){if(!Array.isArray(a))return 0;for(const x of t){const f=a.find(i=>i.action_type===x);if(f&&f.value!=null)return parseFloat(f.value);}return 0;}\nconst P=['omni_purchase','purchase','offsite_conversion.fb_pixel_purchase','app_custom_event.fb_mobile_purchase'];\nreturn $input.all().map(({json:a})=>{const spend=parseFloat(a.spend||0);const conv=actVal(a.actions,P);const rev=actVal(a.action_values,P);let roas=0;if(Array.isArray(a.purchase_roas)&&a.purchase_roas.length)roas=parseFloat(a.purchase_roas[0].value||0);else roas=spend>0?rev/spend:0;const vp=actVal(a.video_play_actions,['video_view']);const tp=actVal(a.video_thruplay_watched_actions,['video_view']);return {json:{ad_id:a.ad_id,adset_id:a.adset_id,campaign_id:a.campaign_id,date:a.date_start,spend:Math.round(spend*100)/100,revenue:Math.round(rev*100)/100,impressions:parseInt(a.impressions||0),reach:parseInt(a.reach||0),clicks:parseInt(a.clicks||0),link_clicks:parseInt(a.inline_link_clicks||0),unique_link_clicks:parseInt(a.unique_inline_link_clicks||0),conversions:Math.round(conv),frequency:Math.round(parseFloat(a.frequency||0)*100)/100,purchase_roas:Math.round(roas*10000)/10000,video_plays:Math.round(vp),thruplays:Math.round(tp)}};});"
       },
-      "type": "n8n-nodes-base.code", "typeVersion": 2, "position": [480, 440],
+      "type": "n8n-nodes-base.code", "typeVersion": 2, "position": [700, 440],
       "id": "d4000000-0000-4000-8000-00000000000b", "name": "Parse Ads"
     },
     {
@@ -107,7 +114,7 @@
         "headerParameters": { "parameters": [ { "name": "apikey", "value": "={{ $env.SUPABASE_SERVICE_KEY }}" }, { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_SERVICE_KEY }}" }, { "name": "Content-Type", "value": "application/json" }, { "name": "Prefer", "value": "resolution=merge-duplicates,return=minimal" } ] },
         "sendBody": true, "contentType": "json", "specifyBody": "json", "jsonBody": "={{ JSON.stringify([$json]) }}", "options": {}
       },
-      "type": "n8n-nodes-base.httpRequest", "typeVersion": 4.3, "position": [700, 440],
+      "type": "n8n-nodes-base.httpRequest", "typeVersion": 4.3, "position": [920, 440],
       "id": "d4000000-0000-4000-8000-00000000000c", "name": "Upsert creative_daily", "retryOnFail": true, "waitBetweenTries": 3000
     }
   ],
@@ -115,7 +122,7 @@
     "Run once": { "main": [ [
       { "node": "Campaigns 60d (daily)", "type": "main", "index": 0 },
       { "node": "Ad Sets 60d (daily)", "type": "main", "index": 0 },
-      { "node": "Ads 60d (daily)", "type": "main", "index": 0 }
+      { "node": "Ad date chunks (7d)", "type": "main", "index": 0 }
     ] ] },
     "Campaigns 60d (daily)": { "main": [ [ { "node": "Split Campaigns", "type": "main", "index": 0 } ] ] },
     "Split Campaigns": { "main": [ [ { "node": "Parse Campaigns", "type": "main", "index": 0 } ] ] },
@@ -123,7 +130,8 @@
     "Ad Sets 60d (daily)": { "main": [ [ { "node": "Split Ad Sets", "type": "main", "index": 0 } ] ] },
     "Split Ad Sets": { "main": [ [ { "node": "Parse Ad Sets", "type": "main", "index": 0 } ] ] },
     "Parse Ad Sets": { "main": [ [ { "node": "Upsert adset_daily", "type": "main", "index": 0 } ] ] },
-    "Ads 60d (daily)": { "main": [ [ { "node": "Split Ads", "type": "main", "index": 0 } ] ] },
+    "Ad date chunks (7d)": { "main": [ [ { "node": "Ads chunk (daily)", "type": "main", "index": 0 } ] ] },
+    "Ads chunk (daily)": { "main": [ [ { "node": "Split Ads", "type": "main", "index": 0 } ] ] },
     "Split Ads": { "main": [ [ { "node": "Parse Ads", "type": "main", "index": 0 } ] ] },
     "Parse Ads": { "main": [ [ { "node": "Upsert creative_daily", "type": "main", "index": 0 } ] ] }
   },

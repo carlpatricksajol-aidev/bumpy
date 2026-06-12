@@ -92,8 +92,12 @@ History otherwise fills in one day at a time. To seed the past 60 days at once,
 import **`backfill_60d.json`** and click **Execute workflow** once:
 
 - It calls Meta with `time_range={since:-60d, until:yesterday}&time_increment=1`,
-  which returns **one row per entity per day** in a single (paginated) call per
-  level — so each daily row's `date` comes from Meta's `date_start`.
+  which returns **one row per entity per day** — each daily row's `date` comes from
+  Meta's `date_start`. Campaign/ad-set levels run as one 60-day call (small). The
+  **ad level is split into 7-day chunks** (one Meta request per chunk) because a
+  full 60-day ad-level pull is too large and Meta returns a transient
+  `code 2 / "Service temporarily unavailable"`. If you still hit that, lower
+  `CHUNK` from `7` to `3` in the "Ad date chunks" node and re-run.
 - It upserts into `campaign_daily` / `adset_daily` / `creative_daily`
   (`on_conflict=<id>,date`), so re-running is safe and never duplicates.
 - It only needs the same env vars as the daily workflows. **Delete or deactivate
