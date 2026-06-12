@@ -86,10 +86,18 @@ with a small daily upsert (REST, `on_conflict=<id>`), using:
 **Important:** set `primary_country` from the real **country breakdown**, NOT from
 the ad name's language code (that was the old "everything shows Unknown" bug).
 
-## One-off backfill (optional — get ~60 days immediately)
+## One-off backfill — get ~60 days immediately (`backfill_60d.json`)
 
-History otherwise fills in one day at a time. To seed the past 60 days now, run a
-temporary variant of each workflow that loops dates `current-1 … current-60`,
-calling Meta with `time_range={'since':D,'until':D}` per day and upserting
-`creative_daily`/`adset_daily`/`campaign_daily`. Delete it after one successful run.
-Note Meta only retains ad-level breakdowns for ~37 months, so 60 days is fine.
+History otherwise fills in one day at a time. To seed the past 60 days at once,
+import **`backfill_60d.json`** and click **Execute workflow** once:
+
+- It calls Meta with `time_range={since:-60d, until:yesterday}&time_increment=1`,
+  which returns **one row per entity per day** in a single (paginated) call per
+  level — so each daily row's `date` comes from Meta's `date_start`.
+- It upserts into `campaign_daily` / `adset_daily` / `creative_daily`
+  (`on_conflict=<id>,date`), so re-running is safe and never duplicates.
+- It only needs the same env vars as the daily workflows. **Delete or deactivate
+  it after one successful run** (the daily snapshots take over from there).
+
+Note: it filters to currently-active entities (matching the daily workflows). Meta
+retains ad-level data well beyond 60 days, so the window is not a limitation.
