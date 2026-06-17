@@ -21,6 +21,14 @@
 -- Apply order: run AFTER 01 and 02. Safe to re-run (CREATE OR REPLACE).
 -- ============================================================================
 
+-- CREATE OR REPLACE cannot reorder/rename a view's existing columns, and this
+-- revision moves `frequency` into the aggregate (changing column order). So drop
+-- the views first, then recreate. (Nothing else in the DB depends on them.)
+drop view if exists v_creative_metrics;
+drop view if exists v_adset_metrics;
+drop view if exists v_campaign_metrics;
+drop view if exists v_yesterday_winners;
+
 -- ---------------------------------------------------------------------------
 -- CREATIVE
 -- ---------------------------------------------------------------------------
