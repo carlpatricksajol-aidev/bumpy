@@ -44,7 +44,7 @@ agg as (
     cp.ad_id, cp.ad_name, p.adset_id, cp.adset_name, p.campaign_id,
     cp.persona, cp.concept_code, cp.media_type, cp.batch, cp.language,
     cp.status, cp.primary_country, cp.primary_device, cp.budget, cp.created_at,
-    cp.country_breakdown, cp.device_breakdown,
+    cp.country_breakdown, cp.device_breakdown, cp.thumbnail_url, cp.permalink, cp.video_id,
     w.window_days,
     coalesce(sum(d.spend)       filter (where d.date >  current_date - 1 - w.window_days),0) as spend,
     coalesce(sum(d.revenue)     filter (where d.date >  current_date - 1 - w.window_days),0) as revenue,
@@ -69,7 +69,8 @@ agg as (
   group by cp.ad_id, cp.ad_name, p.adset_id, cp.adset_name, p.campaign_id,
            cp.persona, cp.concept_code, cp.media_type, cp.batch, cp.language,
            cp.status, cp.primary_country, cp.primary_device, cp.budget, cp.created_at,
-           cp.country_breakdown, cp.device_breakdown, w.window_days
+           cp.country_breakdown, cp.device_breakdown, cp.thumbnail_url, cp.permalink, cp.video_id,
+           w.window_days
 )
 select
   agg.*,

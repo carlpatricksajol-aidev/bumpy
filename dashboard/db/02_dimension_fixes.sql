@@ -35,6 +35,10 @@ alter table creative_performance add column if not exists budget          numeri
 alter table creative_performance add column if not exists created_at      timestamptz;
 alter table creative_performance add column if not exists country_breakdown jsonb;
 alter table creative_performance add column if not exists device_breakdown  jsonb;
+-- creative preview (filled by the dimension-refresh n8n workflow)
+alter table creative_performance add column if not exists thumbnail_url text;
+alter table creative_performance add column if not exists permalink     text;
+alter table creative_performance add column if not exists video_id      text;
 
 -- The legacy misspelled column never received data. Drop it if it exists so the
 -- schema is clean (the new pipeline writes 28-day data via campaign_daily).

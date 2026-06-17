@@ -132,6 +132,28 @@ function DetailModal({ target, onClose }: { target: Target | null; onClose: () =
         <Spinner label="Loading entity…" />
       ) : (
         <div className="max-h-[70vh] space-y-6 overflow-y-auto p-6">
+          {/* creative preview */}
+          {attr?.thumbnail_url && (
+            <div className="flex items-center gap-4">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={attr.thumbnail_url}
+                alt={name}
+                className="h-32 w-32 shrink-0 rounded-lg border border-gray-200 object-cover dark:border-gray-800"
+              />
+              <div className="text-sm text-gray-500 dark:text-gray-400">
+                <div className="mb-1 font-medium text-gray-700 dark:text-gray-200">Creative preview</div>
+                {attr.permalink ? (
+                  <a href={attr.permalink} target="_blank" rel="noopener noreferrer" className="text-cyan-600 hover:underline dark:text-cyan-400">
+                    Open the ad on Facebook ↗
+                  </a>
+                ) : (
+                  <span>Thumbnail from Meta{attr.video_id ? ' · video ad' : ''}</span>
+                )}
+              </div>
+            </div>
+          )}
+
           {/* metric × window matrix */}
           <div>
             <h3 className="mb-2 text-sm font-semibold text-gray-900 dark:text-white">Metrics by window</h3>

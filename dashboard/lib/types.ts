@@ -35,6 +35,9 @@ export interface MetricRow {
   created_at?: string | null
   country_breakdown?: Record<string, number> | null
   device_breakdown?: Record<string, number> | null
+  thumbnail_url?: string | null
+  permalink?: string | null
+  video_id?: string | null
 
   window_days: number
 

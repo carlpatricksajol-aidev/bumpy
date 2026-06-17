@@ -72,19 +72,26 @@ from that history. Apply `../db/*.sql` first.
 | frequency            | `frequency`                                              |
 | date                 | yesterday (`YYYY-MM-DD`, computed in the Code node)      |
 
-## Dimension refresh (attributes — optional add-on, recommended)
+## Dimension refresh — country / OS / creative preview (`dimension_refresh.json`)
 
-The metric views also read attribute columns from the dimension tables
-(`campaigns`/`adsets`/`creative_performance`): `status`, `primary_country`,
-`primary_device`, `budget`, `created_at`, and the breakdown JSON. Keep these fresh
-with a small daily upsert (REST, `on_conflict=<id>`), using:
-- entity metadata call (`/<account>/campaigns` or `/adsets` or `/ads`) for
-  `name`, `effective_status`, `daily_budget`/`lifetime_budget`, `created_time`;
-- a `breakdowns=country` and a `breakdowns=impression_device` insights call to set
-  `primary_country` / `primary_device` (highest-spend bucket) and the breakdown JSON.
+The metric views read attribute columns from the dimension tables
+(`campaigns`/`adsets`/`creative_performance`): `primary_country`, `primary_device`,
+the breakdown JSON, and (creatives only) `thumbnail_url` / `permalink` / `video_id`.
+Import **`dimension_refresh.json`** and Activate it (runs daily at 05:40). It:
+- pulls `breakdowns=country` and `breakdowns=impression_device` per level and
+  **PATCHes** each dimension row with the highest-spend country/device + the full
+  breakdown JSON (real geo — never the ad name's language code);
+- for creatives, also pulls `creative{thumbnail_url,video_id,effective_object_story_id,
+  instagram_permalink_url}` so the dashboard detail modal can show a thumbnail and a
+  link to the live ad.
 
-**Important:** set `primary_country` from the real **country breakdown**, NOT from
-the ad name's language code (that was the old "everything shows Unknown" bug).
+Windows: campaign/ad-set use `last_7d` (stable); creatives use `yesterday` (safe
+volume). It PATCHes existing rows, so the entities must already exist in the
+dimension tables.
+
+**Prerequisite:** re-run `db/02_dimension_fixes.sql` (adds the `thumbnail_url`/
+`permalink`/`video_id` columns) and `db/03_views.sql` (exposes them) before/after
+importing — both are idempotent.
 
 ## One-off backfill — get ~60 days immediately (`backfill_60d.json`)
 
