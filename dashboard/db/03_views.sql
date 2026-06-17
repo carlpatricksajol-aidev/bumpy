@@ -10,6 +10,10 @@
 -- All derived ratios (roas, cpm, ctr, cpc, cpp, cvr, ipm, pp10k, avg_purchase)
 -- are computed here ONCE, server-side, from the daily sums — always consistent.
 --
+-- frequency is the AVERAGE of the daily frequency values over the window. (You
+-- cannot sum daily reach to get a multi-day unique reach, so impressions/reach
+-- across many days is meaningless — that produced absurd values like 22x.)
+--
 -- Schema notes (from the live DB):
 --   • adsets has no `persona` column            → not selected here
 --   • creative_performance has no adset_id /     → adset_id & campaign_id are
@@ -19,8 +23,6 @@
 
 -- ---------------------------------------------------------------------------
 -- CREATIVE
--- creative_performance lacks adset_id/campaign_id, so the parent linkage comes
--- from the latest creative_daily row per ad.
 -- ---------------------------------------------------------------------------
 create or replace view v_creative_metrics as
 with windows(window_days) as (values (1),(7),(14),(28),(30),(60)),
@@ -45,6 +47,7 @@ agg as (
     coalesce(sum(d.conversions) filter (where d.date >  current_date - 1 - w.window_days),0) as conversions,
     coalesce(sum(d.video_plays) filter (where d.date >  current_date - 1 - w.window_days),0) as video_plays,
     coalesce(sum(d.thruplays)   filter (where d.date >  current_date - 1 - w.window_days),0) as thruplays,
+    coalesce(round(avg(d.frequency) filter (where d.date > current_date - 1 - w.window_days), 2),0) as frequency,
     coalesce(sum(d.spend)       filter (where d.date <= current_date - 1 - w.window_days),0) as prev_spend,
     coalesce(sum(d.revenue)     filter (where d.date <= current_date - 1 - w.window_days),0) as prev_revenue,
     coalesce(sum(d.conversions) filter (where d.date <= current_date - 1 - w.window_days),0) as prev_conversions
@@ -71,7 +74,6 @@ select
   round((impressions::numeric / 1000), 2)                              as ipm,
   round(((conversions / nullif(impressions,0)) * 10000)::numeric, 2)   as pp10k,
   round((revenue / nullif(conversions,0))::numeric, 2)                 as avg_purchase,
-  round((impressions::numeric / nullif(reach,0)), 2)                   as frequency,
   round((video_plays::numeric / nullif(impressions,0)), 4)             as hook_rate,
   round((thruplays::numeric  / nullif(video_plays,0)), 4)              as hold_rate,
   round((prev_revenue / nullif(prev_spend,0))::numeric, 4)             as prev_roas,
@@ -102,6 +104,7 @@ agg as (
     coalesce(sum(d.clicks)      filter (where d.date >  current_date - 1 - w.window_days),0) as clicks,
     coalesce(sum(d.link_clicks) filter (where d.date >  current_date - 1 - w.window_days),0) as link_clicks,
     coalesce(sum(d.conversions) filter (where d.date >  current_date - 1 - w.window_days),0) as conversions,
+    coalesce(round(avg(d.frequency) filter (where d.date > current_date - 1 - w.window_days), 2),0) as frequency,
     coalesce(sum(d.spend)       filter (where d.date <= current_date - 1 - w.window_days),0) as prev_spend,
     coalesce(sum(d.revenue)     filter (where d.date <= current_date - 1 - w.window_days),0) as prev_revenue,
     coalesce(sum(d.conversions) filter (where d.date <= current_date - 1 - w.window_days),0) as prev_conversions
@@ -126,7 +129,6 @@ select
   round((impressions::numeric / 1000), 2)                            as ipm,
   round(((conversions / nullif(impressions,0)) * 10000)::numeric, 2) as pp10k,
   round((revenue / nullif(conversions,0))::numeric, 2)               as avg_purchase,
-  round((impressions::numeric / nullif(reach,0)), 2)                 as frequency,
   round((prev_revenue / nullif(prev_spend,0))::numeric, 4)           as prev_roas,
   case when prev_spend > 0
        then round((((spend - prev_spend) / prev_spend) * 100)::numeric, 1) end as spend_change_pct,
@@ -156,6 +158,7 @@ agg as (
     coalesce(sum(d.link_clicks)  filter (where d.date >  current_date - 1 - w.window_days),0) as link_clicks,
     coalesce(sum(d.conversions)  filter (where d.date >  current_date - 1 - w.window_days),0) as conversions,
     coalesce(sum(d.app_installs) filter (where d.date >  current_date - 1 - w.window_days),0) as app_installs,
+    coalesce(round(avg(d.frequency) filter (where d.date > current_date - 1 - w.window_days), 2),0) as frequency,
     coalesce(sum(d.spend)        filter (where d.date <= current_date - 1 - w.window_days),0) as prev_spend,
     coalesce(sum(d.revenue)      filter (where d.date <= current_date - 1 - w.window_days),0) as prev_revenue,
     coalesce(sum(d.conversions)  filter (where d.date <= current_date - 1 - w.window_days),0) as prev_conversions
@@ -180,7 +183,6 @@ select
   round((impressions::numeric / 1000), 2)                            as ipm,
   round(((conversions / nullif(impressions,0)) * 10000)::numeric, 2) as pp10k,
   round((revenue / nullif(conversions,0))::numeric, 2)               as avg_purchase,
-  round((impressions::numeric / nullif(reach,0)), 2)                 as frequency,
   round((prev_revenue / nullif(prev_spend,0))::numeric, 4)           as prev_roas,
   case when prev_spend > 0
        then round((((spend - prev_spend) / prev_spend) * 100)::numeric, 1) end as spend_change_pct,

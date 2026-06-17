@@ -6,7 +6,21 @@ import type { Level, MetricRow } from './types'
 import { num, budgetSpentPct, ageInDays } from './metrics'
 
 export type AlertSeverity = 'critical' | 'warning' | 'opportunity' | 'success'
-export type AlertCategory = 'winner' | 'contender' | 'fatigued' | 'not-spending' | 'declining'
+export type AlertCategory = 'winner' | 'contender' | 'fatigued' | 'not-spending' | 'declining' | 'losing-money'
+
+export const CATEGORY_LABEL: Record<AlertCategory, string> = {
+  'losing-money': 'Losing money',
+  fatigued: 'Fatigued',
+  'not-spending': 'Not spending',
+  declining: 'ROAS declining',
+  contender: 'Contenders',
+  winner: 'Winners',
+}
+
+// Order shown on the Alerts page (worst / most-urgent first).
+export const CATEGORY_ORDER: AlertCategory[] = [
+  'losing-money', 'fatigued', 'not-spending', 'declining', 'contender', 'winner',
+]
 
 export interface Alert {
   id: string
@@ -72,6 +86,17 @@ function evaluate(level: Level, rows: MetricRow[]): Alert[] {
         title: 'Fatigued — audience over-exposed',
         message: `${LABEL[level]} "${name}" — frequency ${freq.toFixed(1)}, ROAS ${num(change).toFixed(0)}% vs prior period.`,
         action: 'Pause or refresh creative. The audience has seen this too many times.',
+      })
+      continue
+    }
+
+    // LOSING MONEY — spending meaningfully but returning less than it costs.
+    if (active && roas < 0.8 && spend > minSpend) {
+      out.push({
+        ...base, id: `losing-${level}-${id}`, severity: 'critical', category: 'losing-money',
+        title: 'Losing money',
+        message: `${LABEL[level]} "${name}" is at ${roas.toFixed(2)}x ROAS on ${`$${spend.toFixed(0)}`} — returning less than it spends.`,
+        action: 'Cut it, or fix targeting/creative before it burns more budget.',
       })
       continue
     }
